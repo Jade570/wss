@@ -31,19 +31,45 @@ const ImageGallery = () => {
   const generateRandomPosition = (width, height) => {
     const screenWidth = window.innerWidth;
     const screenHeight = window.innerHeight;
-    const x = Math.random() * (screenWidth - width);
-    const y = Math.random() * (screenHeight - height);
+
+    const maxX = screenWidth - width;
+    const maxY = screenHeight - height;
+
+    const x = Math.random() * maxX;
+    const y = Math.random() * maxY;
+
     return { x, y };
   };
 
-  const checkOverlap = (newPos, width, height) => {
-    return positions.some((pos) => {
+  const findClosestValidPosition = (newPos, width, height) => {
+    let { x, y } = newPos;
+    const screenWidth = window.innerWidth;
+    const screenHeight = window.innerHeight;
+
+    // 충돌 여부를 검사하면서 위치를 조정
+    while (positions.some((pos) => {
       const overlapX =
-        newPos.x < pos.x + width && newPos.x + width > pos.x;
+        x < pos.x + width && x + width > pos.x;
       const overlapY =
-        newPos.y < pos.y + height && newPos.y + height > pos.y;
+        y < pos.y + height && y + height > pos.y;
       return overlapX && overlapY;
-    });
+    })) {
+      // 위치를 조정
+      x += 10; // x를 오른쪽으로 이동
+      if (x + width > screenWidth) {
+        x = 0; // 화면 경계를 초과하면 x를 초기화
+        y += 10; // y를 한 칸 아래로 이동
+      }
+      if (y + height > screenHeight) {
+        y = 0; // 화면 경계를 초과하면 y를 초기화
+      }
+    }
+
+    // 화면 경계를 초과하지 않도록 최종적으로 제한
+    x = Math.min(Math.max(0, x), screenWidth - width);
+    y = Math.min(Math.max(0, y), screenHeight - height);
+
+    return { x, y };
   };
 
   const initializePositions = () => {
@@ -52,14 +78,8 @@ const ImageGallery = () => {
     const imageHeight = 100;
 
     images.forEach(() => {
-      let validPosition = false;
-      let position;
-
-      while (!validPosition) {
-        position = generateRandomPosition(imageWidth, imageHeight);
-        validPosition = !checkOverlap(position, imageWidth, imageHeight);
-      }
-
+      let position = generateRandomPosition(imageWidth, imageHeight);
+      position = findClosestValidPosition(position, imageWidth, imageHeight);
       newPositions.push(position);
     });
 
@@ -71,8 +91,8 @@ const ImageGallery = () => {
   }, []);
 
   return (
-    <div style={{ position: 'relative', width: '100vw', height: '100vh' }}>
-      {positions.length > 0 && // 위치 초기화 후 렌더링
+    <div style={{ position: 'relative', width: '90vw', height: '90vh' }}>
+      {positions.length > 0 &&
         images.map((name, index) => (
           <div
             key={name}
