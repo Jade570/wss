@@ -4,7 +4,7 @@ import './globals.css';
 import React, { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 
-const DynamicEarthCanvas = dynamic(() => import("../components/player"), {
+const DynamicEarthCanvas = dynamic(() => import("../components/webaudiotest"), {
   ssr: false,
 });
 

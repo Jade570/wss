@@ -3,44 +3,44 @@ import * as Tone from "tone";
 import chordFrequencies from "./chordFrequencies";
 import chordProgression from "./chordProgressions";
 
-// 코드별 음 배열 (순서대로: 근음, 3음, 5음, 옥타브/7음)
-
-// filter의 Q값에 따라 gain을 계산하는 함수
+// filter의 Q값에 따라 gain 변경 함수
 const calculateGain = (Q) => {
-  return 5 * Math.log10(Q); // 예: Q = 700이면 약 70
+  return 1 + 69 * (Math.log(Q) / Math.log(700));
 };
 
 const OscilloscopeWithFilterToggle = () => {
   const [filterActive, setFilterActive] = useState(true);
-  const filterQ = 10;
+  const [filterQ, setFilterQ] = useState(10);
   const computedGain = calculateGain(filterQ);
 
-  // 재생바 관련 상태: 현재 재생 위치와 전체 길이(초)
+  // 재생바 관련 state
   const [playbackPosition, setPlaybackPosition] = useState(0);
   const [totalDuration, setTotalDuration] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(true);
 
-  // dryGain, filteredGain, player를 ref로 저장
+  // Tone 노드 ref
   const dryGainRef = useRef(null);
   const filteredGainRef = useRef(null);
   const playerRef = useRef(null);
+  const filtersRef = useRef([]);
+  const channelsRef = useRef([]);
 
-  // 플레이어의 재생 시작 시점을 기록하기 위한 ref
-  // 실제 재생 위치는 (현재 Transport.seconds - seekTimeRef) + startOffsetRef 로 계산
+  // 재생 위치 계산을 위한 ref
   const seekTimeRef = useRef(0);
   const startOffsetRef = useRef(0);
 
-  // 오디오 체인을 한 번만 생성 (컴포넌트 마운트 시)
+  // bpm 설정 및 노드 체인 구성 (마운트 시 한 번 실행)
   useEffect(() => {
-    Tone.getContext().transport.bpm.value = 80;
+    Tone.getTransport().bpm.value = 80;
     const masterGain = new Tone.Gain(1.0).toDestination();
 
-    // 초기 filterActive 상태에 따른 게인 값 설정
+    // dry/filtered 게인 노드 생성
     const dryGain = new Tone.Gain(filterActive ? 0 : 1).connect(masterGain);
     const filteredGain = new Tone.Gain(filterActive ? computedGain : 0).connect(masterGain);
     dryGainRef.current = dryGain;
     filteredGainRef.current = filteredGain;
 
-    // 4개의 채널과 필터 체인 생성 (Tone.Channel + Filter)
+    // 채널과 필터 생성 (4개)
     const filterNum = 4;
     const channels = [];
     const filters = [];
@@ -49,59 +49,42 @@ const OscilloscopeWithFilterToggle = () => {
       const filter = new Tone.Filter({
         Q: filterQ,
         type: "bandpass",
+        // 초기 주파수는 1000Hz 같은 값으로 설정하거나 이후 Sequence에서 업데이트되도록 할 수 있습니다.
+        frequency: 1000,
       });
       channel.connect(filter);
       filter.connect(filteredGain);
       channels.push(channel);
       filters.push(filter);
     }
+    channelsRef.current = channels;
+    filtersRef.current = filters;
 
-    // Tone.Player 생성 (loop:true로 설정하여 계속 재생)
+    // Tone.Player 생성 (loop 모드)
     const player = new Tone.Player({
       url: "/sample.m4a",
       autostart: false,
       loop: true,
       onload: () => {
         console.log("Player loaded.");
-        // 총 재생 길이 (초) 설정
         setTotalDuration(player.buffer.duration);
-        // 초기 재생 시점을 기록 (현재 Transport.seconds)
-        seekTimeRef.current = Tone.Transport.seconds;
+        seekTimeRef.current = Tone.getTransport().seconds;
         startOffsetRef.current = 0;
         Tone.start().then(() => {
-          Tone.Transport.start();
+          Tone.getTransport().start();
           player.start();
         });
       },
     });
     playerRef.current = player;
 
-    // 플레이어의 출력 신호를 dryGain과 각 채널(필터 체인)에 병렬 연결
+    // 플레이어 출력 신호 연결: dryGain와 각 채널에 병렬 연결
     player.connect(dryGain);
     channels.forEach((channel) => {
       player.connect(channel);
     });
 
-    // Tone.Sequence로 코드 진행에 따라 필터의 주파수를 업데이트
-    // const chordProgression = ["Am", "Am", "Am", "E7",
-    //   "Dm", "Am", "E7", "Am",
-    //   "Am", "Am", "Am", "E7",
-    //   "Dm", "Am", "E7", "Am",
-    //   "F", "Am", "C", "E7",
-    //   "F", "Am", "C", "G",
-    //   "Am", "Dm", "Am", "E7",
-    //   "Am", "Am", "E7", "Am"];
-
-    // const newProgression = [
-    //   "Cm", "Cm", ["Cm", "Cm", "Cm", "Ddim7"], ["Eb", "CtoE"],
-    //   "Fm", "Cm", "G", "Cm",
-    //   "Cm", "Cm", ["Cm", "Cm", "Cm", "Ddim7"], ["Eb", "CtoE"],
-    //   "Fm", "Cm", "G", "Cm",
-    //   "Fm", "Cm", "Bb", ["Eb", "CtoE"],
-    //   "Fm", "Cm", "Dhalfdim7", ["Csus4", "G"],
-    //   "Cm", "Fm", "Eb", "G",
-    //   "Cm", "Eb", "G", "Cm"
-    // ];
+    // Sequence 생성 (콜백에서 filtersRef.current를 사용)
     const seq = new Tone.Sequence(
       (time, chord) => {
         // chord가 배열일 수도 있으므로 처리
@@ -109,30 +92,36 @@ const OscilloscopeWithFilterToggle = () => {
         chords.forEach((note, i) => {
           if (chordFrequencies[note]) {
             const freq = Tone.Frequency(chordFrequencies[note][i]).toFrequency();
-            filters[i].frequency.setValueAtTime(freq, time);
+            // 새 필터가 생성되면 filtersRef.current[i]로 업데이트됨
+            if (filtersRef.current[i]) {
+              filtersRef.current[i].frequency.setValueAtTime(freq, time);
+            }
           }
         });
       },
       chordProgression.marching_new,
-      "1n" // 1 온음표마다 업데이트
+      "1n"
     );
     seq.start(0);
 
-    // 컴포넌트 언마운트 시 Tone 노드 정리
+    dryGain.gain.value = filterActive ? 0 : 1;
+    filteredGain.gain.value = filterActive ? computedGain : 0;
+    console.log(computedGain);
+
     return () => {
-      Tone.Transport.stop();
+      Tone.getTransport().stop();
       player.stop();
       player.dispose();
       seq.dispose();
-      channels.forEach((ch) => ch.dispose());
-      filters.forEach((f) => f.dispose());
+      channelsRef.current.forEach((ch) => ch.dispose());
+      filtersRef.current.forEach((f) => f.dispose());
       dryGain.dispose();
       filteredGain.dispose();
       masterGain.dispose();
     };
-  }, []); // 마운트 시 한 번 실행
+  }, []);
 
-  // filterActive 상태 변화 시 게인 값만 업데이트
+  // filterActive 상태 변화 시 게인 값 업데이트
   useEffect(() => {
     if (dryGainRef.current && filteredGainRef.current) {
       dryGainRef.current.gain.value = filterActive ? 0 : 1;
@@ -140,13 +129,20 @@ const OscilloscopeWithFilterToggle = () => {
     }
   }, [filterActive, computedGain]);
 
-  // 재생 위치 업데이트: requestAnimationFrame으로 주기적으로 Tone.Transport.seconds를 기준으로 계산
+  // filterQ(state)가 변경되면, resetFilters 호출 (전체 채널/필터 재생성)
+  useEffect(() => {
+    
+    if (channelsRef.current.length && filtersRef.current.length) {
+      resetFilters(filterQ);
+    }
+  }, [filterQ]);
+
+  // 재생 위치 업데이트
   useEffect(() => {
     let rafId;
     const updatePosition = () => {
       if (playerRef.current && totalDuration > 0) {
-        const elapsed = Tone.Transport.seconds - seekTimeRef.current;
-        // 현재 재생 위치는 (시작 오프셋 + 경과시간)를 총 길이로 나눈 나머지
+        const elapsed = Tone.getTransport().seconds - seekTimeRef.current;
         const pos = (startOffsetRef.current + elapsed) % totalDuration;
         setPlaybackPosition(pos);
       }
@@ -156,22 +152,88 @@ const OscilloscopeWithFilterToggle = () => {
     return () => cancelAnimationFrame(rafId);
   }, [totalDuration]);
 
-  // 재생바 변경 시 호출: 사용자가 원하는 위치로 이동
+  // 재생바 이동
   const handleSeek = (e) => {
     const newTime = parseFloat(e.target.value);
     if (playerRef.current) {
       playerRef.current.seek(newTime);
-      // 재생 위치 계산을 위한 기준값 업데이트
-      seekTimeRef.current = Tone.Transport.seconds;
+      seekTimeRef.current = Tone.getTransport().seconds;
       startOffsetRef.current = newTime;
       setPlaybackPosition(newTime);
     }
   };
 
+  // 재생/일시정지 버튼
+  const togglePlayback = () => {
+    if (isPlaying) {
+      Tone.getTransport().pause();
+      setIsPlaying(false);
+    } else {
+      Tone.getTransport().start();
+      setIsPlaying(true);
+    }
+  };
+
+  // 전체 채널과 필터를 새로 생성하여 player와 다시 연결하는 함수
+  const resetFilters = (newQ) => {
+    if (!filteredGainRef.current || !playerRef.current) return;
+    console.log("resetFilters");
+    // 기존 채널, 필터 폐기
+    channelsRef.current.forEach((ch) => {
+      try {
+        ch.disconnect();
+      } catch (e) {
+        console.error("채널 disconnect 에러:", e);
+      }
+      ch.dispose();
+    });
+    channelsRef.current = [];
+    if (filtersRef.current && filtersRef.current.length) {
+      filtersRef.current.forEach((f) => {
+        try {
+          f.disconnect();
+        } catch (e) {
+          console.error("필터 disconnect 에러:", e);
+        }
+        f.dispose();
+      });
+    }
+    filtersRef.current = [];
+
+    // 새 채널과 필터 생성 (채널 수: 4)
+    const newChannels = [];
+    const newFilters = [];
+    const channelCount = 4;
+    for (let i = 0; i < channelCount; i++) {
+      const channel = new Tone.Channel();
+      // 새 필터 생성: 이전 필터의 중심 주파수 유지 (없으면 기본값 1000Hz)
+      const newFilter = new Tone.Filter({
+        frequency: 1000, // 또는 oldFilter.frequency.value (필터마다 다르게 적용하려면 다른 방식 필요)
+        Q: newQ,
+        type: "bandpass",
+      });
+      channel.connect(newFilter);
+      newFilter.connect(filteredGainRef.current);
+      newChannels.push(channel);
+      newFilters.push(newFilter);
+    }
+    channelsRef.current = newChannels;
+    filtersRef.current = newFilters;
+
+    // player의 출력 재연결
+    playerRef.current.disconnect();
+    newChannels.forEach((channel) => {
+      playerRef.current.connect(channel);
+    });
+  };
+
   return (
-    <div>
+    <div style={{ color: "#ffffff" }}>
       <button onClick={() => setFilterActive((prev) => !prev)}>
         {filterActive ? "필터 끄기 (바이패스)" : "필터 켜기"}
+      </button>
+      <button onClick={togglePlayback} style={{ marginLeft: "10px" }}>
+        {isPlaying ? "일시정지" : "재생"}
       </button>
       <div style={{ marginTop: "20px" }}>
         {/* 재생바 */}
@@ -187,6 +249,21 @@ const OscilloscopeWithFilterToggle = () => {
         <div>
           {playbackPosition.toFixed(2)} / {totalDuration.toFixed(2)} 초
         </div>
+      </div>
+      <div style={{ marginTop: "20px" }}>
+        <label>
+          Q 값: {filterQ}
+          <input
+            type="range"
+            min="1"
+            max="700"
+            step="1"
+            value={filterQ}
+            onChange={(e) => setFilterQ(parseInt(e.target.value, 10))}
+            style={{ width: "100%" }}
+          />
+        </label>
+        <div>{computedGain}</div>
       </div>
     </div>
   );
