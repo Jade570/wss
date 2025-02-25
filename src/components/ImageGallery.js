@@ -1,116 +1,117 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 
 const images = [
-  'fishcake',
-  'flag',
-  'heart',
-  'kisses',
-  'loudspeaker',
-  'note',
-  'star',
+  { name: 'fishcake', description: 'A delicious Korean fishcake.' },
+  { name: 'flag', description: 'A beautiful flag representing pride.' },
+  { name: 'heart', description: 'A symbol of love and affection.' },
+  { name: 'kisses', description: 'A playful kiss emoji.' },
+  { name: 'loudspeaker', description: 'A loudspeaker for announcements.' },
+  { name: 'note', description: 'A musical note symbolizing harmony.' },
+  { name: 'star', description: 'A shining star in the night sky.' },
 ];
 
 const ImageGallery = () => {
-  const [positions, setPositions] = useState([]);
-  const [activeImages, setActiveImages] = useState(
-    images.reduce((acc, name) => {
-      acc[name] = 'idle';
-      return acc;
-    }, {})
-  );
+  const [activeImage, setActiveImage] = useState(null);
 
-  const handleClick = (name) => {
-    setActiveImages((prevState) => ({
-      ...prevState,
-      [name]: prevState[name] === 'idle' ? 'hover' : 'idle',
-    }));
+  const handleClick = (image) => {
+    setActiveImage(image);
   };
 
-  const generateRandomPosition = (width, height) => {
-    const screenWidth = window.innerWidth;
-    const screenHeight = window.innerHeight;
-
-    const maxX = screenWidth - width;
-    const maxY = screenHeight - height;
-
-    const x = Math.random() * maxX;
-    const y = Math.random() * maxY;
-
-    return { x, y };
+  const handleClose = () => {
+    setActiveImage(null);
   };
-
-  const findClosestValidPosition = (newPos, width, height) => {
-    let { x, y } = newPos;
-    const screenWidth = window.innerWidth;
-    const screenHeight = window.innerHeight;
-
-    // 충돌 여부를 검사하면서 위치를 조정
-    while (positions.some((pos) => {
-      const overlapX =
-        x < pos.x + width && x + width > pos.x;
-      const overlapY =
-        y < pos.y + height && y + height > pos.y;
-      return overlapX && overlapY;
-    })) {
-      // 위치를 조정
-      x += 10; // x를 오른쪽으로 이동
-      if (x + width > screenWidth) {
-        x = 0; // 화면 경계를 초과하면 x를 초기화
-        y += 10; // y를 한 칸 아래로 이동
-      }
-      if (y + height > screenHeight) {
-        y = 0; // 화면 경계를 초과하면 y를 초기화
-      }
-    }
-
-    // 화면 경계를 초과하지 않도록 최종적으로 제한
-    x = Math.min(Math.max(0, x), screenWidth - width);
-    y = Math.min(Math.max(0, y), screenHeight - height);
-
-    return { x, y };
-  };
-
-  const initializePositions = () => {
-    const newPositions = [];
-    const imageWidth = 100;
-    const imageHeight = 100;
-
-    images.forEach(() => {
-      let position = generateRandomPosition(imageWidth, imageHeight);
-      position = findClosestValidPosition(position, imageWidth, imageHeight);
-      newPositions.push(position);
-    });
-
-    setPositions(newPositions);
-  };
-
-  useEffect(() => {
-    initializePositions();
-  }, []);
 
   return (
-    <div style={{ position: 'relative', width: '90vw', height: '90vh' }}>
-      {positions.length > 0 &&
-        images.map((name, index) => (
+    <div style={{ position: 'relative', width: '100vw', height: '100vh' }}>
+      {/* 이미지 갤러리 */}
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '20px',
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}
+      >
+        {images.map((image) => (
           <div
-            key={name}
-            onClick={() => handleClick(name)}
+            key={image.name}
+            onClick={() => handleClick(image)}
             style={{
-              position: 'absolute',
-              left: `${positions[index]?.x || 0}px`,
-              top: `${positions[index]?.y || 0}px`,
               cursor: 'pointer',
             }}
           >
             <img
-              src={`/images/${name}_${activeImages[name]}.png`}
-              alt={name}
+              src={`/images/${image.name}_idle.png`}
+              alt={image.name}
               style={{ width: '100px', height: '100px', objectFit: 'contain' }}
             />
           </div>
         ))}
+      </div>
+
+      {/* 모달 (이미지가 선택되었을 때만 표시) */}
+      {activeImage && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100vw',
+            height: '100vh',
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 1000,
+          }}
+        >
+          {/* 이미지 확대 및 설명 */}
+          <div
+            style={{
+              position: 'relative',
+              backgroundColor: '#fff',
+              borderRadius: '10px',
+              padding: '20px',
+              maxWidth: '90%',
+              maxHeight: '90%',
+              textAlign: 'center',
+              boxShadow: '0 4px 8px rgba(0, 0, 0, 0.2)',
+            }}
+          >
+            <img
+              src={`/images/${activeImage.name}_hover.png`}
+              alt={activeImage.name}
+              style={{
+                maxWidth: '100%',
+                maxHeight: '60vh',
+                marginBottom: '20px',
+                borderRadius: '10px',
+              }}
+            />
+            <p style={{ fontSize: '18px', color: '#333' }}>
+              {activeImage.description}
+            </p>
+            <button
+              onClick={handleClose}
+              style={{
+                position: 'absolute',
+                top: '10px',
+                right: '10px',
+                background: 'none',
+                border: 'none',
+                fontSize: '20px',
+                cursor: 'pointer',
+                color: '#333',
+              }}
+            >
+              &times;
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

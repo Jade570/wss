@@ -13,7 +13,15 @@
 html,
 body {
   max-width: 100vw;
+  margin: 0;
+  padding: 0;
   overflow-x: hidden;
+  /* background-color: #0a0a0a; */
+}
+
+canvas {
+  display: block; /* 기본 inline 요소인 canvas의 여백을 제거 */
+  border: none;
 }
 
 body {
