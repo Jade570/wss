@@ -19,37 +19,28 @@ const chordFrequencies = {
   Fm: ["C3","F3","Ab3","C4"],
 };
 
+const calculateGain = (Q) => {
+  return 5 * Math.log10(Q);  // 기본적으로 Q = 700일 때 70이 되도록 설정
+};
+
 const OscilloscopeWithFilterToggle = () => {
   const [filterActive, setFilterActive] = useState(true);
+  const filterQ = 10;
+  const computedGain = calculateGain(filterQ);
+  
 
+  //bpm change
+  Tone.getContext().transport.bpm.value = 80; 
   useEffect(() => {
     // === Tone 노드 생성 ===
     // 최종 출력 노드: masterGain에 analyser를 연결하여 오실로스코프에 신호를 보냅니다.
     const masterGain = new Tone.Gain(1.0);
     masterGain.toDestination();
 
-    // 여기에 compressor와 makeupGain 추가
-    // const compressor = new Tone.Compressor({
-    //     threshold: -30,  // 필요에 따라 조정
-    //     ratio: 4,
-    //     attack: 0.005,
-    //     release: 0.1,
-    // });
-    const makeupGain = new Tone.Gain(12.0); // 여기의 값도 실시간 모니터링 후 조절 필요
-
-
-    // compressor와 makeupGain을 연결합니다.
-    // compressor.connect(makeupGain);
-    makeupGain.connect(masterGain);
-
-    // === Tone.Meter를 활용한 레벨 감지 ===
-    const meter = new Tone.Meter();
-    makeupGain.connect(meter); // makeupGain 이후의 레벨을 측정
-
     // dry/filtered 경로를 위한 게인 노드 생성
     // filterActive가 true이면 filteredGain 1, dryGain 0; false이면 그 반대로.
     const dryGain = new Tone.Gain(filterActive ? 0 : 1).connect(masterGain);
-    const filteredGain = new Tone.Gain(filterActive ? 1 : 0).connect(makeupGain);
+    const filteredGain = new Tone.Gain(filterActive ? computedGain : 0).connect(masterGain);
 
     // --- Tone.Channel + Filter 체인 ---
     // 4개의 채널에 하나씩 필터를 생성 (초기 frequency는 0으로 설정 → sequence에서 업데이트)
@@ -59,8 +50,7 @@ const OscilloscopeWithFilterToggle = () => {
     for (let i = 0; i < filterNum; i++) {
       const channel = new Tone.Channel();
       const filter = new Tone.Filter({
-        frequency: 0,
-        Q: 700,
+        Q: filterQ,
         type: "bandpass",
       });
       channel.connect(filter);
@@ -117,8 +107,7 @@ const OscilloscopeWithFilterToggle = () => {
           const freq = Tone.Frequency(note).toFrequency();
           filters[i].frequency.setValueAtTime(freq, time);
         });
-      },
-      
+      }, 
       newProgression,
       "1n" // 1n(온음표)마다 업데이트
     );
@@ -126,8 +115,8 @@ const OscilloscopeWithFilterToggle = () => {
 
     // 상태 변경 시 dryGain와 filteredGain의 값 업데이트 (실시간 조절)
     dryGain.gain.value = filterActive ? 0 : 1;
-    filteredGain.gain.value = filterActive ? 1 : 0;
-
+    filteredGain.gain.value = filterActive ? computedGain : 0;
+    console.log(computedGain);
     // === 컴포넌트 언마운트 시 정리 ===
     return () => {
       Tone.Transport.stop();
@@ -138,9 +127,10 @@ const OscilloscopeWithFilterToggle = () => {
       filters.forEach((f) => f.dispose());
       dryGain.dispose();
       filteredGain.dispose();
-      makeupGain.dispose();
       masterGain.dispose();
     };
+
+    
   }, [filterActive]);
 
   return (
