@@ -2,7 +2,7 @@ import React, { useRef, useState, useEffect } from "react";
 import chordFrequencies from "./chordFrequencies";
 import chordProgression from "./chordProgressions";
 import noteToFrequency from "./webAudioFunc";
-
+import { io } from "socket.io-client";
 
 // chordProgression의 한 요소(문자열 또는 배열)를 받아 4개의 주파수 배열로 변환하는 함수
 function getChordFrequencies(chordElement) {
@@ -32,6 +32,67 @@ const NativeAudioPlayerWithChordProgression = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [qValue, setQValue] = useState(30); // 초기 Q값 30
   const qValueRef = useRef(qValue);
+  const [ESPData, setESPData] = useState(null);
+
+  // Socket.IO 클라이언트 연결 (서버 주소를 실제 도메인 또는 IP와 포트로 변경)
+  const socketRef = useRef(null);
+
+  useEffect(() => {
+    /////// ESP 단의 Websocket ///////
+
+    const gateway = "ws://192.168.137.248/ws";
+    const websocket = new WebSocket(gateway);
+
+    websocket.onopen = (event) => {
+      console.log("웹소켓 연결 성공");
+      // 필요시 초기 요청 메시지를 보낼 수 있음
+      // websocket.send("getReadings");
+    };
+
+    websocket.onmessage = (event) => {
+      console.log("수신 데이터:", event.data);
+      try {
+        const jsonData = JSON.parse(event.data);
+        setESPData(jsonData);
+      } catch (error) {
+        console.error("JSON 파싱 에러:", error);
+      }
+    };
+
+    websocket.onerror = (error) => {
+      console.error("웹소켓 에러:", error);
+    };
+
+    websocket.onclose = (event) => {
+      console.log("웹소켓 연결 종료");
+    };
+
+    ////// 클라우드 단의 요술봉들 ///////
+    const socket = io("http://45.32.211.174", {
+      path: "/socket.io",
+      transports: ["websocket"],
+    });
+    socketRef.current = socket;
+    socket.on("connect", () => {
+      console.log("웹소켓 연결 성공", socket.id);
+    });
+    socket.on("disconnect", () => {
+      console.log("웹소켓 연결 종료");
+    });
+    // 서버에서 broadcast한 이벤트를 수신 (필요 시 처리)
+    socket.on("playerModel", (data) => {
+      console.log("서버에서 playerModel 업데이트:", data);
+    });
+    socket.on("playerShader", (data) => {
+      console.log("서버에서 playerShader 업데이트:", data);
+    });
+
+    // 컴포넌트 언마운트 시 웹소켓 종료
+    return () => {
+      websocket.close();
+      socket.disconnect();
+    };
+  }, []);
 
   useEffect(() => {
     qValueRef.current = qValue;
@@ -45,7 +106,8 @@ const NativeAudioPlayerWithChordProgression = () => {
     try {
       // AudioContext 생성 및 활성화
       if (!audioContextRef.current) {
-        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+        audioContextRef.current = new (window.AudioContext ||
+          window.webkitAudioContext)();
       }
       const audioContext = audioContextRef.current;
       if (audioContext.state === "suspended") {
@@ -88,9 +150,9 @@ const NativeAudioPlayerWithChordProgression = () => {
       analyser.fftSize = 256;
       const dataArray = new Float32Array(analyser.fftSize);
 
-      // 오디오 체인 구성: source → 각 filter → compressor → autoMakeupGain → destination  
+      // 오디오 체인 구성: source → 각 filter → compressor → autoMakeupGain → destination
       // compressor의 출력은 analyser에도 연결하여 RMS 측정
-      filters.forEach(filter => {
+      filters.forEach((filter) => {
         source.connect(filter);
         filter.connect(compressor);
       });
@@ -116,14 +178,24 @@ const NativeAudioPlayerWithChordProgression = () => {
         makeupFactor = Math.min(Math.max(makeupFactor, 1), 10); // clamp: 1~10
 
         // baseGain는 Q값에 따라 결정
-        const baseGainNow = 1 + 6.9 * (Math.log(qValueRef.current) / Math.log(700));
+        const baseGainNow =
+          1 + 6.9 * (Math.log(qValueRef.current) / Math.log(700));
         const finalGain = baseGainNow * makeupFactor;
         autoMakeupGain.gain.exponentialRampToValueAtTime(
           finalGain,
           audioContext.currentTime + 0.1
         );
-        
-        console.log("RMS:", rms.toFixed(3), "makeupFactor:", makeupFactor.toFixed(3), "baseGain:", baseGainNow.toFixed(3), "finalGain:", finalGain.toFixed(3));
+
+        console.log(
+          "RMS:",
+          rms.toFixed(3),
+          "makeupFactor:",
+          makeupFactor.toFixed(3),
+          "baseGain:",
+          baseGainNow.toFixed(3),
+          "finalGain:",
+          finalGain.toFixed(3)
+        );
       };
 
       const autoMakeupInterval = setInterval(updateAutoMakeup, 100);
@@ -135,13 +207,16 @@ const NativeAudioPlayerWithChordProgression = () => {
       const scheduleMeasure = () => {
         const progression = chordProgression.marching_new;
         if (!progression) {
-          console.error("chordProgression.marching_new이 정의되어 있지 않습니다.");
+          console.error(
+            "chordProgression.marching_new이 정의되어 있지 않습니다."
+          );
           return;
         }
-        const currentElement = progression[measureIndexRef.current % progression.length];
+        const currentElement =
+          progression[measureIndexRef.current % progression.length];
 
         // 매 마디마다 필터의 Q값을 최신 qValue로 재적용
-        filterRefs.current.forEach(filter => {
+        filterRefs.current.forEach((filter) => {
           filter.Q.value = qValueRef.current;
         });
 
@@ -155,7 +230,10 @@ const NativeAudioPlayerWithChordProgression = () => {
               0.01
             );
           });
-          console.log(`Bar ${measureIndexRef.current + 1}: ${currentElement}`, freqs);
+          console.log(
+            `Bar ${measureIndexRef.current + 1}: ${currentElement}`,
+            freqs
+          );
           measureIndexRef.current++;
           const tId = setTimeout(scheduleMeasure, measureDuration * 1000);
           timeoutsRef.current.push(tId);
@@ -166,7 +244,7 @@ const NativeAudioPlayerWithChordProgression = () => {
           currentElement.forEach((subChord, idx) => {
             const tId = setTimeout(() => {
               // 서브 코드 적용 시에도 Q값 재적용
-              filterRefs.current.forEach(filter => {
+              filterRefs.current.forEach((filter) => {
                 filter.Q.value = qValueRef.current;
               });
               const freqs = getChordFrequencies(subChord);
@@ -178,7 +256,9 @@ const NativeAudioPlayerWithChordProgression = () => {
                 );
               });
               console.log(
-                `Bar ${measureIndexRef.current + 1} - Subdivision ${idx + 1}/${subdivisions}: ${subChord}`,
+                `Bar ${measureIndexRef.current + 1} - Subdivision ${
+                  idx + 1
+                }/${subdivisions}: ${subChord}`,
                 freqs
               );
             }, idx * subDuration * 1000);
@@ -199,7 +279,7 @@ const NativeAudioPlayerWithChordProgression = () => {
 
   // 정지 함수: 타이머와 노드를 정리합니다.
   const stopAudio = () => {
-    timeoutsRef.current.forEach(id => clearTimeout(id));
+    timeoutsRef.current.forEach((id) => clearTimeout(id));
     timeoutsRef.current = [];
     if (autoMakeupIntervalRef.current) {
       clearInterval(autoMakeupIntervalRef.current);
@@ -208,7 +288,7 @@ const NativeAudioPlayerWithChordProgression = () => {
     if (sourceRef.current) {
       sourceRef.current.stop();
       sourceRef.current.disconnect();
-      filterRefs.current.forEach(filter => filter.disconnect());
+      filterRefs.current.forEach((filter) => filter.disconnect());
       sourceRef.current = null;
     }
     if (audioContextRef.current) {
@@ -228,7 +308,11 @@ const NativeAudioPlayerWithChordProgression = () => {
   return (
     <div style={{ padding: "1em", background: "#e0e0e0" }}>
       <h2>Chord Progression 적용 Native Web Audio API Player</h2>
-      <button onClick={playAudio} disabled={isPlaying} style={{ marginRight: "1em" }}>
+      <button
+        onClick={playAudio}
+        disabled={isPlaying}
+        style={{ marginRight: "1em" }}
+      >
         재생
       </button>
       <button onClick={stopAudio} disabled={!isPlaying}>
@@ -246,7 +330,9 @@ const NativeAudioPlayerWithChordProgression = () => {
           style={{ width: "100%" }}
         />
       </label>
-      <p>BPM: {BPM} / 한 마디 지속시간: {measureDuration.toFixed(2)}초</p>
+      <p>
+        BPM: {BPM} / 한 마디 지속시간: {measureDuration.toFixed(2)}초
+      </p>
     </div>
   );
 };
